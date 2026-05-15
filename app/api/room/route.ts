@@ -52,7 +52,18 @@ export async function GET(req: NextRequest) {
       await supabase.from("members").insert({ room_id: room.id, name });
     }
 
-    return NextResponse.json({ roomId: room.id, code: room.code });
+    return NextResponse.json({ roomId: room.id, code: room.code, settings: room.settings || {} });
+  } catch (e) {
+    return NextResponse.json({ error: String(e) }, { status: 500 });
+  }
+}
+
+export async function PATCH(req: NextRequest) {
+  try {
+    const { roomId, settings } = await req.json();
+    const { error } = await supabase.from("rooms").update({ settings }).eq("id", roomId);
+    if (error) throw error;
+    return NextResponse.json({ ok: true });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
   }

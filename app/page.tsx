@@ -13,7 +13,13 @@ interface Transaction {
   created_at: string;
 }
 
-const EARN_TASKS = [
+interface Task {
+  emoji: string;
+  label: string;
+  points: number;
+}
+
+const DEFAULT_EARN_TASKS: Task[] = [
   { emoji: "🗑️", label: "ゴミ出し", points: 15 },
   { emoji: "👕", label: "洗濯", points: 50 },
   { emoji: "🍳", label: "料理", points: 80 },
@@ -26,7 +32,7 @@ const EARN_TASKS = [
   { emoji: "💊", label: "薬の管理", points: 20 },
 ];
 
-const SPEND_TASKS = [
+const DEFAULT_SPEND_TASKS: Task[] = [
   { emoji: "🚀", label: "一日外出券", points: 5000 },
   { emoji: "🎮", label: "ゲーム2時間", points: 200 },
   { emoji: "🍺", label: "飲み会1回", points: 800 },
@@ -37,7 +43,7 @@ const SPEND_TASKS = [
   { emoji: "🎁", label: "好きなもの買う1000円", points: 1000 },
 ];
 
-type Screen = "login" | "dashboard" | "earn" | "spend" | "message" | "penalty";
+type Screen = "login" | "dashboard" | "earn" | "spend" | "message" | "penalty" | "settings";
 
 export default function Home() {
   const [screen, setScreen] = useState<Screen>("login");
@@ -56,6 +62,11 @@ export default function Home() {
   const [penaltyReason, setPenaltyReason] = useState("");
   const [penaltyPoints, setPenaltyPoints] = useState("");
   const [toast, setToast] = useState("");
+  const [earnTasks, setEarnTasks] = useState<Task[]>(DEFAULT_EARN_TASKS);
+  const [spendTasks, setSpendTasks] = useState<Task[]>(DEFAULT_SPEND_TASKS);
+  const [editEarnTasks, setEditEarnTasks] = useState<Task[]>([]);
+  const [editSpendTasks, setEditSpendTasks] = useState<Task[]>([]);
+  const [settingsFrom, setSettingsFrom] = useState<"earn" | "spend">("earn");
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -68,6 +79,13 @@ export default function Home() {
     if (data.transactions) setTransactions(data.transactions);
   }, []);
 
+  const loadSettings = useCallback(async (rid: string) => {
+    const res = await fetch(`/api/settings?roomId=${rid}`);
+    const data = await res.json();
+    if (data.settings?.earnTasks) setEarnTasks(data.settings.earnTasks);
+    if (data.settings?.spendTasks) setSpendTasks(data.settings.spendTasks);
+  }, []);
+
   useEffect(() => {
     const saved = localStorage.getItem("fam_session");
     if (saved) {
@@ -77,8 +95,9 @@ export default function Home() {
       setMyName(myName);
       setScreen("dashboard");
       fetchTransactions(roomId);
+      loadSettings(roomId);
     }
-  }, [fetchTransactions]);
+  }, [fetchTransactions, loadSettings]);
 
   const handleCreate = async () => {
     if (!name.trim()) return;
@@ -107,6 +126,7 @@ export default function Home() {
     localStorage.setItem("fam_session", JSON.stringify(session));
     setRoomId(data.roomId); setRoomCode(data.code); setMyName(name.trim());
     await fetchTransactions(data.roomId);
+    await loadSettings(data.roomId);
     setScreen("dashboard"); setLoading(false);
   };
 
@@ -125,12 +145,25 @@ export default function Home() {
     const data = await res.json();
     if (data.transaction) {
       setTransactions((prev) => [data.transaction, ...prev]);
-      if (type === "earn") showToast(`+${points}pt 獲得！💪`);
+      if (type === "earn") showToast(`+${points}pt 協力ありがとう！💪`);
       if (type === "spend") showToast(`-${points}pt 使用しました`);
       if (type === "message") showToast("メッセージを送りました 💌");
       if (type === "penalty") showToast(`${targetName}から ${points}pt 没収！⚡`);
       setScreen("dashboard");
     }
+  };
+
+  const saveSettings = async () => {
+    const settings = { earnTasks: editEarnTasks, spendTasks: editSpendTasks };
+    await fetch("/api/settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ roomId, settings }),
+    });
+    setEarnTasks(editEarnTasks);
+    setSpendTasks(editSpendTasks);
+    showToast("設定を保存しました ✅");
+    setScreen("dashboard");
   };
 
   const calcPoints = (name: string) =>
@@ -205,23 +238,13 @@ export default function Home() {
             <p className="text-sm text-stone-500 mb-4">
               {partner ? `${partner}へメッセージを送ろう` : "パートナーへメッセージを送ろう"}
             </p>
-            <textarea
-              value={messageText}
-              onChange={(e) => setMessageText(e.target.value)}
+            <textarea value={messageText} onChange={(e) => setMessageText(e.target.value)}
               placeholder="例：洗い物ありがとう！助かった☺️"
               rows={4}
-              className="w-full border border-stone-200 rounded-xl px-4 py-3 text-stone-800 text-sm resize-none focus:outline-none focus:border-green-400 transition-colors mb-4"
-            />
-            <button
-              onClick={() => {
-                if (messageText.trim()) {
-                  addTransaction("message", "💌 メッセージ", 0, messageText.trim());
-                  setMessageText("");
-                }
-              }}
+              className="w-full border border-stone-200 rounded-xl px-4 py-3 text-stone-800 text-sm resize-none focus:outline-none focus:border-green-400 transition-colors mb-4" />
+            <button onClick={() => { if (messageText.trim()) { addTransaction("message", "💌 メッセージ", 0, messageText.trim()); setMessageText(""); } }}
               disabled={!messageText.trim()}
-              className="w-full bg-green-500 text-white py-3.5 rounded-xl font-black text-sm hover:bg-green-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            >
+              className="w-full bg-green-500 text-white py-3.5 rounded-xl font-black text-sm hover:bg-green-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
               送る
             </button>
           </div>
@@ -247,34 +270,24 @@ export default function Home() {
             <div className="space-y-4">
               <div>
                 <p className="text-xs text-stone-400 mb-1.5">理由（必須）</p>
-                <textarea
-                  value={penaltyReason}
-                  onChange={(e) => setPenaltyReason(e.target.value)}
+                <textarea value={penaltyReason} onChange={(e) => setPenaltyReason(e.target.value)}
                   placeholder="例：洗い終わった洗濯物を3日間放置してたから"
                   rows={3}
-                  className="w-full border border-stone-200 rounded-xl px-4 py-3 text-stone-800 text-sm resize-none focus:outline-none focus:border-red-300 transition-colors"
-                />
+                  className="w-full border border-stone-200 rounded-xl px-4 py-3 text-stone-800 text-sm resize-none focus:outline-none focus:border-red-300 transition-colors" />
               </div>
               <div>
                 <p className="text-xs text-stone-400 mb-1.5">没収ポイント</p>
-                <input
-                  type="number"
-                  value={penaltyPoints}
-                  onChange={(e) => setPenaltyPoints(e.target.value)}
-                  placeholder="例：100"
-                  className="w-full border border-stone-200 rounded-xl px-4 py-3 text-stone-800 text-sm focus:outline-none focus:border-red-300 transition-colors"
-                />
+                <input type="number" value={penaltyPoints} onChange={(e) => setPenaltyPoints(e.target.value)} placeholder="例：100"
+                  className="w-full border border-stone-200 rounded-xl px-4 py-3 text-stone-800 text-sm focus:outline-none focus:border-red-300 transition-colors" />
               </div>
-              <button
-                onClick={() => {
-                  if (penaltyReason.trim() && penaltyPoints && partner) {
-                    addTransaction("penalty", `⚡ 没収：${penaltyReason.trim()}`, parseInt(penaltyPoints), penaltyReason.trim(), partner);
-                    setPenaltyReason(""); setPenaltyPoints("");
-                  }
-                }}
+              <button onClick={() => {
+                if (penaltyReason.trim() && penaltyPoints && partner) {
+                  addTransaction("penalty", `⚡ 没収：${penaltyReason.trim()}`, parseInt(penaltyPoints), penaltyReason.trim(), partner);
+                  setPenaltyReason(""); setPenaltyPoints("");
+                }
+              }}
                 disabled={!penaltyReason.trim() || !penaltyPoints || !partner}
-                className="w-full bg-red-500 text-white py-3.5 rounded-xl font-black text-sm hover:bg-red-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-              >
+                className="w-full bg-red-500 text-white py-3.5 rounded-xl font-black text-sm hover:bg-red-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
                 没収する
               </button>
               {!partner && <p className="text-xs text-stone-400 text-center">パートナーが参加してから使えます</p>}
@@ -285,18 +298,102 @@ export default function Home() {
     );
   }
 
-  // 稼ぐ画面
+  // 設定画面
+  if (screen === "settings") {
+    return (
+      <div className="min-h-screen bg-stone-50 font-sans">
+        <header className="bg-white border-b border-stone-100 px-4 py-4 flex items-center gap-3 shadow-sm">
+          <button onClick={() => setScreen(settingsFrom)} className="text-stone-400 hover:text-stone-600 font-medium text-sm">← 戻る</button>
+          <h2 className="font-black text-stone-800">ポイント設定 ⚙️</h2>
+        </header>
+        <div className="max-w-xl mx-auto px-4 py-5 space-y-4">
+          <p className="text-xs text-stone-400">タスク名・ポイントの編集、追加・削除ができます。変更はパートナーにも反映されます。</p>
+
+          {/* 協力タスク編集 */}
+          {settingsFrom === "earn" && (
+            <div className="bg-white rounded-2xl p-5 border border-stone-100 shadow-sm">
+              <p className="text-xs text-stone-400 uppercase tracking-widest mb-3">協力タスク 🤝</p>
+              <div className="space-y-2">
+                {editEarnTasks.map((task, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <input type="text" value={task.emoji}
+                      onChange={(e) => setEditEarnTasks(prev => prev.map((t, j) => j === i ? { ...t, emoji: e.target.value } : t))}
+                      className="w-10 border border-stone-200 rounded-lg px-1 py-1.5 text-center text-sm focus:outline-none focus:border-green-400" />
+                    <input type="text" value={task.label}
+                      onChange={(e) => setEditEarnTasks(prev => prev.map((t, j) => j === i ? { ...t, label: e.target.value } : t))}
+                      className="flex-1 border border-stone-200 rounded-xl px-3 py-1.5 text-stone-800 text-sm focus:outline-none focus:border-green-400" />
+                    <input type="number" value={task.points}
+                      onChange={(e) => setEditEarnTasks(prev => prev.map((t, j) => j === i ? { ...t, points: parseInt(e.target.value) || 0 } : t))}
+                      className="w-16 border border-stone-200 rounded-xl px-2 py-1.5 text-stone-800 text-sm text-right focus:outline-none focus:border-green-400" />
+                    <span className="text-xs text-stone-400">pt</span>
+                    <button onClick={() => setEditEarnTasks(prev => prev.filter((_, j) => j !== i))}
+                      className="text-red-300 hover:text-red-500 text-lg leading-none transition-colors">×</button>
+                  </div>
+                ))}
+              </div>
+              <button onClick={() => setEditEarnTasks(prev => [...prev, { emoji: "✨", label: "新しいタスク", points: 10 }])}
+                className="mt-3 w-full border-2 border-dashed border-green-200 text-green-500 py-2 rounded-xl text-sm font-bold hover:border-green-400 transition-colors">
+                ＋ タスクを追加
+              </button>
+            </div>
+          )}
+
+          {/* 使うタスク編集 */}
+          {settingsFrom === "spend" && (
+            <div className="bg-white rounded-2xl p-5 border border-stone-100 shadow-sm">
+              <p className="text-xs text-stone-400 uppercase tracking-widest mb-3">使うタスク 🎁</p>
+              <div className="space-y-2">
+                {editSpendTasks.map((task, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <input type="text" value={task.emoji}
+                      onChange={(e) => setEditSpendTasks(prev => prev.map((t, j) => j === i ? { ...t, emoji: e.target.value } : t))}
+                      className="w-10 border border-stone-200 rounded-lg px-1 py-1.5 text-center text-sm focus:outline-none focus:border-green-400" />
+                    <input type="text" value={task.label}
+                      onChange={(e) => setEditSpendTasks(prev => prev.map((t, j) => j === i ? { ...t, label: e.target.value } : t))}
+                      className="flex-1 border border-stone-200 rounded-xl px-3 py-1.5 text-stone-800 text-sm focus:outline-none focus:border-green-400" />
+                    <input type="number" value={task.points}
+                      onChange={(e) => setEditSpendTasks(prev => prev.map((t, j) => j === i ? { ...t, points: parseInt(e.target.value) || 0 } : t))}
+                      className="w-16 border border-stone-200 rounded-xl px-2 py-1.5 text-stone-800 text-sm text-right focus:outline-none focus:border-green-400" />
+                    <span className="text-xs text-stone-400">pt</span>
+                    <button onClick={() => setEditSpendTasks(prev => prev.filter((_, j) => j !== i))}
+                      className="text-red-300 hover:text-red-500 text-lg leading-none transition-colors">×</button>
+                  </div>
+                ))}
+              </div>
+              <button onClick={() => setEditSpendTasks(prev => [...prev, { emoji: "🎀", label: "新しいご褒美", points: 100 }])}
+                className="mt-3 w-full border-2 border-dashed border-green-200 text-green-500 py-2 rounded-xl text-sm font-bold hover:border-green-400 transition-colors">
+                ＋ ご褒美を追加
+              </button>
+            </div>
+          )}
+
+          <button onClick={saveSettings}
+            className="w-full bg-green-500 text-white py-4 rounded-xl font-black text-sm hover:bg-green-600 transition-colors">
+            保存する
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // 協力する画面
   if (screen === "earn") {
     return (
       <div className="min-h-screen bg-stone-50 font-sans">
         <header className="bg-white border-b border-stone-100 px-4 py-4 flex items-center gap-3 shadow-sm">
           <button onClick={() => setScreen("dashboard")} className="text-stone-400 hover:text-stone-600 font-medium text-sm">← 戻る</button>
-          <h2 className="font-black text-stone-800">ポイントを稼ぐ 💪</h2>
-          <span className="ml-auto text-green-600 font-black text-sm bg-green-50 px-3 py-1 rounded-full">{myPoints.toLocaleString()}pt</span>
+          <h2 className="font-black text-stone-800">協力ポイントを記録 🤝</h2>
+          <div className="ml-auto flex items-center gap-2">
+            <button onClick={() => { setEditEarnTasks([...earnTasks]); setEditSpendTasks([...spendTasks]); setSettingsFrom("earn"); setScreen("settings"); }}
+              className="bg-stone-100 hover:bg-stone-200 text-stone-600 px-3 py-1.5 rounded-xl text-xs font-bold transition-colors">
+              ⚙️ ポイント設定
+            </button>
+            <span className="text-green-600 font-black text-sm bg-green-50 px-3 py-1 rounded-full">{myPoints.toLocaleString()}pt</span>
+          </div>
         </header>
         <div className="max-w-xl mx-auto px-4 py-5 space-y-3">
           <div className="grid grid-cols-2 gap-3">
-            {EARN_TASKS.map((task) => (
+            {earnTasks.map((task) => (
               <button key={task.label} onClick={() => addTransaction("earn", task.label, task.points)}
                 className="bg-white border border-stone-100 rounded-2xl p-4 text-left hover:border-green-300 hover:shadow-md transition-all shadow-sm">
                 <span className="text-2xl block mb-2">{task.emoji}</span>
@@ -331,11 +428,17 @@ export default function Home() {
         <header className="bg-white border-b border-stone-100 px-4 py-4 flex items-center gap-3 shadow-sm">
           <button onClick={() => setScreen("dashboard")} className="text-stone-400 hover:text-stone-600 font-medium text-sm">← 戻る</button>
           <h2 className="font-black text-stone-800">ポイントを使う 🎁</h2>
-          <span className="ml-auto text-green-600 font-black text-sm bg-green-50 px-3 py-1 rounded-full">{myPoints.toLocaleString()}pt</span>
+          <div className="ml-auto flex items-center gap-2">
+            <button onClick={() => { setEditEarnTasks([...earnTasks]); setEditSpendTasks([...spendTasks]); setSettingsFrom("spend"); setScreen("settings"); }}
+              className="bg-stone-100 hover:bg-stone-200 text-stone-600 px-3 py-1.5 rounded-xl text-xs font-bold transition-colors">
+              ⚙️ ポイント設定
+            </button>
+            <span className="text-green-600 font-black text-sm bg-green-50 px-3 py-1 rounded-full">{myPoints.toLocaleString()}pt</span>
+          </div>
         </header>
         <div className="max-w-xl mx-auto px-4 py-5 space-y-3">
           <div className="grid grid-cols-2 gap-3">
-            {SPEND_TASKS.map((task) => (
+            {spendTasks.map((task) => (
               <button key={task.label}
                 onClick={() => { if (myPoints < task.points) { showToast("ポイントが足りません💦"); return; } addTransaction("spend", task.label, task.points); }}
                 className={`bg-white border rounded-2xl p-4 text-left transition-all shadow-sm ${myPoints >= task.points ? "border-stone-100 hover:border-red-200 hover:shadow-md" : "border-stone-100 opacity-40 cursor-not-allowed"}`}>
@@ -375,20 +478,13 @@ export default function Home() {
 
       <header className="bg-white border-b border-stone-100 px-4 py-4 flex items-center justify-between shadow-sm">
         <h1 className="text-2xl font-black text-green-600 tracking-tighter">Fam</h1>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <span className="text-xs text-stone-400">CODE</span>
           <span className="text-xs text-green-600 font-black font-mono tracking-widest bg-green-50 px-2.5 py-1 rounded-lg border border-green-100">{roomCode}</span>
         </div>
       </header>
 
       <div className="max-w-xl mx-auto px-4 py-5 space-y-4">
-
-        {partner && (
-          <div className="bg-green-500 rounded-2xl p-5 text-white shadow-lg shadow-green-200">
-            <p className="text-xs text-green-100 uppercase tracking-widest mb-1">家族の合計ポイント</p>
-            <p className="text-4xl font-black">{totalPoints.toLocaleString()}<span className="text-lg font-normal ml-1">pt</span></p>
-          </div>
-        )}
 
         <div className="bg-white rounded-2xl p-5 border border-stone-100 shadow-sm">
           <p className="text-xs text-stone-400 uppercase tracking-widest mb-4">現在の残高</p>
@@ -418,18 +514,18 @@ export default function Home() {
         <div className="grid grid-cols-2 gap-3">
           <button onClick={() => setScreen("earn")}
             className="bg-green-500 text-white py-4 rounded-2xl font-black text-sm hover:bg-green-600 transition-colors shadow-sm shadow-green-200">
-            💪 稼ぐ
+            🤝 協力する
           </button>
           <button onClick={() => setScreen("spend")}
-            className="bg-white text-stone-700 py-4 rounded-2xl font-black text-sm hover:bg-stone-50 transition-colors shadow-sm border border-stone-100">
+            className="bg-amber-400 text-white py-4 rounded-2xl font-black text-sm hover:bg-amber-500 transition-colors shadow-sm shadow-amber-200">
             🎁 使う
           </button>
           <button onClick={() => setScreen("message")}
-            className="bg-white text-stone-700 py-4 rounded-2xl font-black text-sm hover:bg-stone-50 transition-colors shadow-sm border border-stone-100">
+            className="bg-sky-400 text-white py-4 rounded-2xl font-black text-sm hover:bg-sky-500 transition-colors shadow-sm shadow-sky-200">
             💌 メッセージ
           </button>
           <button onClick={() => setScreen("penalty")}
-            className="bg-white text-red-400 py-4 rounded-2xl font-black text-sm hover:bg-red-50 transition-colors shadow-sm border border-red-100">
+            className="bg-red-400 text-white py-4 rounded-2xl font-black text-sm hover:bg-red-500 transition-colors shadow-sm shadow-red-200">
             ⚡ 没収する
           </button>
         </div>
