@@ -187,8 +187,24 @@ export default function Home() {
       <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-50 flex flex-col items-center justify-center px-6 font-sans">
         <div className="mb-8 text-center">
           <h1 className="text-5xl font-black text-green-600 tracking-tighter">Fam</h1>
-          <p className="text-stone-400 text-sm mt-2">家族の頑張りを、一緒に積み上げよう。</p>
+          <p className="text-stone-400 text-sm mt-2">二人の協力が、見えるようになる。</p>
         </div>
+        <div className="w-full max-w-sm flex justify-between mb-6 px-2">
+          {[
+            { step: "1", icon: "🏠", label: "ルームを作る" },
+            { step: "2", icon: "👫", label: "パートナーを招待" },
+            { step: "3", icon: "🤝", label: "協力を記録する" },
+          ].map((item, i, arr) => (
+            <div key={item.step} className="flex items-center gap-2">
+              <div className="flex flex-col items-center">
+                <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center text-xl mb-1">{item.icon}</div>
+                <p className="text-xs text-stone-500 font-bold text-center leading-tight">{item.label}</p>
+              </div>
+              {i < arr.length - 1 && <span className="text-stone-200 text-lg mb-4 mx-1">→</span>}
+            </div>
+          ))}
+        </div>
+
         <div className="w-full max-w-sm bg-white rounded-3xl p-6 shadow-xl shadow-green-100 border border-green-50">
           <div className="flex gap-2 mb-5">
             <button onClick={() => setIsNewRoom(true)}
@@ -587,10 +603,6 @@ export default function Home() {
           </div>
         )}
 
-        <button onClick={() => { localStorage.removeItem("fam_session"); setScreen("login"); setRoomId(""); setRoomCode(""); setMyName(""); setTransactions([]); }}
-          className="w-full text-stone-300 text-xs py-3 hover:text-stone-400 transition-colors">
-          ログアウト
-        </button>
       </div>
     </div>
   );
